@@ -1,13 +1,755 @@
-<!doctype html>
-<html lang="en" class="dark">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Metric Experience Prototype</title>
-    <script type="module" crossorigin src="/metric-experience-prototype/assets/index-6Y51czXV.js"></script>
-    <link rel="stylesheet" crossorigin href="/metric-experience-prototype/assets/index-C0u930yH.css">
-  </head>
-  <body>
-    <div id="root"></div>
-  </body>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Tableau Metric Experience</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #d0d8e8;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    #root {
+      width: 390px;
+      height: 844px;
+      border-radius: 48px;
+      overflow: hidden;
+      box-shadow: 0 32px 96px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.15);
+      position: relative;
+    }
+    ::-webkit-scrollbar { width: 0; }
+    button { font-family: inherit; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useRef, useEffect, useMemo } = React;
+
+const C = {
+  offTrack: '#E24B4A',
+  risky:    '#BA7517',
+  onTrack:  '#1D9E75',
+  navy:     '#1B3A6B',
+  teal:     '#00A8A8',
+  bg:       '#F4F6FA',
+};
+
+// ─── Sparkline ────────────────────────────────────────────────────────────────
+function Sparkline({ data, goalValue, status, width = 240, height = 44 }) {
+  const color = status === 'offtrack' ? C.offTrack : status === 'risky' ? C.risky : C.onTrack;
+  const pad = 3;
+  const min = Math.min(...data, goalValue) - (Math.max(...data) - Math.min(...data)) * 0.15;
+  const max = Math.max(...data, goalValue) + (Math.max(...data) - Math.min(...data)) * 0.15;
+  const range = max - min || 1;
+  const W = width - pad * 2;
+  const H = height - pad * 2;
+  const xStep = W / (data.length - 1);
+
+  const toXY = (v, i) => [pad + i * xStep, pad + H - ((v - min) / range) * H];
+  const pts = data.map(toXY);
+  const linePts = pts.map(([x, y]) => `${x},${y}`).join(' ');
+  const goalY = pad + H - ((goalValue - min) / range) * H;
+  const [lx, ly] = pts[pts.length - 1];
+  const areaPath = `M${pts[0][0]},${H + pad} ` +
+    pts.map(([x, y]) => `L${x},${y}`).join(' ') +
+    ` L${lx},${H + pad} Z`;
+
+  const gradId = useMemo(() => `sg-${status}-${Math.random().toString(36).slice(2, 7)}`, []);
+
+  return (
+    <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={{ overflow: 'visible', display: 'block' }}>
+      <defs>
+        <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.18" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={areaPath} fill={`url(#${gradId})`} />
+      <line x1={pad} y1={goalY} x2={pad + W} y2={goalY}
+        stroke={color} strokeWidth="1.5" strokeDasharray="5,4" opacity="0.55" />
+      <polyline points={linePts} fill="none" stroke={color} strokeWidth="2.5"
+        strokeLinejoin="round" strokeLinecap="round" />
+      <circle cx={lx} cy={ly} r="3.5" fill={color} />
+    </svg>
+  );
+}
+
+// ─── Metric Data ──────────────────────────────────────────────────────────────
+const METRICS = {
+  'win-rate': {
+    id: 'win-rate',
+    name: 'Win Rate',
+    status: 'offtrack',
+    value: '24%',
+    numericValue: 24,
+    change: '↓ 6pts',
+    changeDir: 'down',
+    changeContext: '−6pts YoY',
+    goal: '30%',
+    goalValue: 30,
+    goalDiff: '−6pts below',
+    sparkData: [31, 30, 29, 30, 28, 27, 26, 24],
+    chatInsight: 'Win rate is 24% this quarter — off track against your Q2 goal of 30%. Decline accelerated over past 3 weeks, driven by Enterprise deals.',
+    watchInsight: 'Decline accelerated over past 3 weeks, driven by Enterprise deals.',
+    semanticModel: 'Sales Performance',
+    metric: 'Win Rate',
+    dateField: 'CloseDate',
+  },
+  'pipeline-coverage': {
+    id: 'pipeline-coverage',
+    name: 'Pipeline Coverage',
+    status: 'risky',
+    value: '2.4×',
+    numericValue: 2.4,
+    change: '↓ 3 wks straight',
+    changeDir: 'down',
+    changeContext: '↓ 3 weeks straight',
+    goal: '3×',
+    goalValue: 3,
+    goalDiff: '−0.6× below',
+    sparkData: [3.2, 3.1, 2.9, 2.8, 2.7, 2.6, 2.5, 2.4],
+    chatInsight: 'Pipeline coverage is 2.4× — risky heading into Q2 close. Coverage has declined for 3 consecutive weeks, driven by slower inbound.',
+    watchInsight: 'Coverage has declined for 3 consecutive weeks, driven by slower inbound.',
+    semanticModel: 'Sales Performance',
+    metric: 'Pipeline Coverage',
+    dateField: 'CloseDate',
+  },
+  'avg-deal-size': {
+    id: 'avg-deal-size',
+    name: 'Avg Deal Size',
+    status: 'ontrack',
+    value: '$52K',
+    numericValue: 52,
+    change: '↑ $4K',
+    changeDir: 'up',
+    changeContext: '+$4K YoY',
+    goal: '$50K',
+    goalValue: 50,
+    goalDiff: '+$2K above',
+    sparkData: [48, 49, 50, 51, 50, 52, 51, 52],
+    chatInsight: 'Avg deal size is $52K — above the Q2 goal of $50K, driven by Enterprise upsells.',
+    watchInsight: 'Enterprise upsells driving steady growth above Q2 goal.',
+    semanticModel: 'Sales Performance',
+    metric: 'Avg Deal Size',
+    dateField: 'CloseDate',
+  },
+};
+
+// ─── Status helpers ───────────────────────────────────────────────────────────
+function statusColor(s) {
+  return s === 'offtrack' ? C.offTrack : s === 'risky' ? C.risky : C.onTrack;
+}
+function statusLabel(s) {
+  return s === 'offtrack' ? 'Off track' : s === 'risky' ? 'Risky' : 'On track';
+}
+
+// ─── Raw Query Card (without-metrics state) ───────────────────────────────────
+function RawQueryCard() {
+  return (
+    <div style={{ fontSize: 14, color: '#334155', lineHeight: 1.6 }}>
+      <div style={{ marginBottom: 10 }}>
+        Win rate this quarter is <strong>24%</strong>, based on 841 closed opportunities in Q2 FY26.
+      </div>
+      <div style={{
+        borderTop: '1px solid #f1f5f9', paddingTop: 8,
+        display: 'flex', flexDirection: 'column', gap: 4,
+      }}>
+        <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>
+          Sources
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#64748b' }}>
+          <span style={{ fontSize: 10, color: '#94a3b8' }}>⬤</span>
+          <span>Semantic model: <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#475569' }}>Opportunities</span></span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#64748b' }}>
+          <span style={{ fontSize: 10, color: '#94a3b8' }}>⬤</span>
+          <span>Date field: <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#475569' }}>CreatedDate</span></span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Chat Metric Card ─────────────────────────────────────────────────────────
+function MetricCard({ metric, onFollow, isFollowed }) {
+  const sc = statusColor(metric.status);
+  const sl = statusLabel(metric.status);
+  return (
+    <div style={{ borderRadius: 14, overflow: 'hidden', background: 'white', boxShadow: '0 2px 12px rgba(0,0,0,0.09)', marginBottom: 2 }}>
+      {/* Colored top bar */}
+      <div style={{ height: 4, background: sc }} />
+      <div style={{ padding: '12px 14px' }}>
+        {/* Header row */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: sc, flexShrink: 0 }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#0d1b2e' }}>{metric.name}</span>
+          </div>
+          <span style={{
+            fontSize: 11, fontWeight: 700, color: sc,
+            background: sc + '18', borderRadius: 20, padding: '2px 9px',
+          }}>{sl}</span>
+        </div>
+
+        {/* Aggregation label */}
+        <div style={{ fontSize: 10, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: 6 }}>
+          Non-cumulative
+        </div>
+
+        {/* BAN value */}
+        <div style={{ fontSize: 34, fontWeight: 800, color: sc, lineHeight: 1, marginBottom: 4 }}>
+          {metric.value}
+        </div>
+
+        {/* Change line */}
+        <div style={{ fontSize: 12, marginBottom: 5 }}>
+          <span style={{ color: metric.changeDir === 'down' ? C.offTrack : C.onTrack, fontWeight: 600 }}>
+            {metric.change}
+          </span>
+          <span style={{ color: '#94a3b8', marginLeft: 6 }}>{metric.changeContext}</span>
+        </div>
+
+        {/* Goal row */}
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>
+          Goal {metric.goal}
+          <span style={{ color: metric.status === 'ontrack' ? C.onTrack : sc, marginLeft: 8, fontWeight: 600 }}>
+            {metric.goalDiff}
+          </span>
+        </div>
+
+        {/* Sparkline */}
+        <div style={{ marginBottom: 10 }}>
+          <Sparkline data={metric.sparkData} goalValue={metric.goalValue} status={metric.status} width={284} height={46} />
+        </div>
+
+        {/* Insight */}
+        <div style={{ fontSize: 12.5, color: '#334155', lineHeight: 1.55, marginBottom: 10 }}>
+          {metric.chatInsight}
+        </div>
+
+        {/* Sources */}
+        <div style={{
+          borderTop: '1px solid #f1f5f9', paddingTop: 8, marginBottom: 12,
+          display: 'flex', flexDirection: 'column', gap: 4,
+        }}>
+          <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 2 }}>
+            Sources
+          </div>
+          {[
+            { label: 'Semantic model', value: metric.semanticModel },
+            { label: 'Metric', value: metric.metric },
+            { label: 'Date field', value: metric.dateField },
+          ].map(row => (
+            <div key={row.label} style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#64748b' }}>
+              <span style={{ fontSize: 10, color: '#94a3b8' }}>⬤</span>
+              <span>{row.label}: <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#475569' }}>{row.value}</span></span>
+            </div>
+          ))}
+        </div>
+
+        {/* Buttons */}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button style={{
+            flex: 1, padding: '9px 8px', borderRadius: 9, border: `1.5px solid ${C.teal}`,
+            background: 'white', fontSize: 12, fontWeight: 700, color: C.teal, cursor: 'pointer',
+          }}>
+            View metric details
+          </button>
+          <button
+            onClick={!isFollowed ? onFollow : undefined}
+            style={{
+              flex: 1, padding: '9px 8px', borderRadius: 9, border: 'none',
+              background: isFollowed ? C.teal + '20' : C.teal,
+              fontSize: 12, fontWeight: 700,
+              color: isFollowed ? C.teal : 'white',
+              cursor: isFollowed ? 'default' : 'pointer',
+              transition: 'all 0.2s',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
+            }}>
+            {isFollowed ? '✓ Following' : 'Follow metric'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Message bubbles ──────────────────────────────────────────────────────────
+function UserMessage({ text }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', gap: 8, marginBottom: 14 }}>
+      <div style={{
+        background: C.navy, borderRadius: '18px 18px 4px 18px',
+        padding: '10px 15px', maxWidth: '75%',
+        fontSize: 14, color: 'white', lineHeight: 1.5,
+      }}>{text}</div>
+      <div style={{
+        width: 30, height: 30, borderRadius: '50%', flexShrink: 0,
+        background: '#94a3b8', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'white',
+        marginBottom: 2,
+      }}>J</div>
+    </div>
+  );
+}
+
+function AgentMessage({ children, simple, text, timestamp = 'Today at 9:42 AM' }) {
+  return (
+    <div style={{ display: 'flex', gap: 9, marginBottom: 14, maxWidth: '100%' }}>
+      <div style={{
+        width: 32, height: 32, borderRadius: 9, flexShrink: 0,
+        background: `linear-gradient(135deg, ${C.teal}, #0082a0)`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 13, fontWeight: 800, color: 'white',
+      }}>A</div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: 5 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: '#0d1b2e' }}>Tableau Agent</span>
+          <span style={{ fontSize: 10.5, color: '#94a3b8' }}>{timestamp}</span>
+        </div>
+        {simple
+          ? <div style={{ fontSize: 14, color: '#334155', lineHeight: 1.55 }}>{text}</div>
+          : children}
+      </div>
+    </div>
+  );
+}
+
+function FollowToast({ metricName }) {
+  return (
+    <div style={{
+      marginLeft: 41, marginBottom: 12,
+      padding: '9px 13px', borderRadius: 10,
+      background: C.teal + '14', border: `1px solid ${C.teal}40`,
+      fontSize: 12, color: C.teal, fontWeight: 600, lineHeight: 1.5,
+    }}>
+      ✓ {metricName} added to My Metrics — you'll get a DM when something changes.
+    </div>
+  );
+}
+
+// ─── Chat Screen ──────────────────────────────────────────────────────────────
+function ChatScreen({ withMetrics, setWithMetrics, followed, onFollow, justFollowed }) {
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [withMetrics, followed]);
+
+  return (
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Toggle bar */}
+      <div style={{
+        padding: '10px 16px 10px',
+        background: 'white', borderBottom: '1px solid #e8ecf4',
+        flexShrink: 0,
+      }}>
+        <div style={{ display: 'flex', gap: 3, borderRadius: 10, background: '#f1f5fb', padding: 3 }}>
+          {[false, true].map(val => {
+            const active = withMetrics === val;
+            return (
+              <button key={String(val)}
+                onClick={() => setWithMetrics(val)}
+                style={{
+                  flex: 1, padding: '7px 6px', borderRadius: 8, border: 'none',
+                  background: active ? (val ? C.teal : 'white') : 'transparent',
+                  color: active ? (val ? 'white' : '#0d1b2e') : '#94a3b8',
+                  fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  boxShadow: active && !val ? '0 1px 4px rgba(0,0,0,0.1)' : 'none',
+                  transition: 'all 0.18s',
+                }}>
+                {val ? '✓ With metrics' : 'Without metrics'}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 14px 4px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 16 }}>
+          <span style={{ fontSize: 11, color: '#94a3b8', background: '#e2e8f0', borderRadius: 12, padding: '3px 12px' }}>
+            Today
+          </span>
+        </div>
+
+        <UserMessage text="How is our win rate this quarter?" />
+
+        {withMetrics ? (
+          <>
+            <AgentMessage>
+              <MetricCard
+                metric={METRICS['win-rate']}
+                onFollow={() => onFollow('win-rate')}
+                isFollowed={!!followed['win-rate']}
+              />
+            </AgentMessage>
+
+            {followed['win-rate'] && justFollowed === 'win-rate' && (
+              <FollowToast metricName="Win Rate" />
+            )}
+
+            <UserMessage text="What about pipeline coverage?" />
+
+            <AgentMessage timestamp="Today at 9:44 AM">
+              <MetricCard
+                metric={METRICS['pipeline-coverage']}
+                onFollow={() => onFollow('pipeline-coverage')}
+                isFollowed={!!followed['pipeline-coverage']}
+              />
+            </AgentMessage>
+
+            {followed['pipeline-coverage'] && justFollowed === 'pipeline-coverage' && (
+              <FollowToast metricName="Pipeline Coverage" />
+            )}
+          </>
+        ) : (
+          <AgentMessage>
+            <RawQueryCard />
+          </AgentMessage>
+        )}
+
+        <div style={{ height: 8 }} />
+      </div>
+
+      {/* Input bar */}
+      <div style={{
+        padding: '8px 12px 10px',
+        background: 'white', borderTop: '1px solid #e8ecf4',
+        display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+      }}>
+        <div style={{
+          flex: 1, borderRadius: 24, background: '#f1f5fb',
+          padding: '10px 16px', fontSize: 13.5, color: '#94a3b8',
+        }}>
+          Message #sales-insights
+        </div>
+        <button style={{
+          width: 38, height: 38, borderRadius: '50%',
+          background: C.teal, border: 'none', color: 'white',
+          fontSize: 17, fontWeight: 700, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          boxShadow: '0 2px 8px rgba(0,168,168,0.35)',
+        }}>↑</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Watchlist Card ───────────────────────────────────────────────────────────
+function WatchlistCard({ metric, isNew }) {
+  const sc = statusColor(metric.status);
+  const sl = statusLabel(metric.status);
+
+  return (
+    <div style={{
+      borderRadius: 14, overflow: 'hidden', background: 'white',
+      boxShadow: isNew
+        ? `0 0 0 2px ${C.teal}, 0 4px 16px rgba(0,168,168,0.18)`
+        : '0 1px 8px rgba(0,0,0,0.07)',
+      marginBottom: 11,
+      transition: 'box-shadow 0.4s',
+    }}>
+      <div style={{ height: 3, background: sc }} />
+      <div style={{ padding: '12px 14px' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: sc, flexShrink: 0 }} />
+            <span style={{ fontSize: 14.5, fontWeight: 800, color: '#0d1b2e' }}>{metric.name}</span>
+            <span style={{
+              fontSize: 11, fontWeight: 700, color: sc,
+              background: sc + '18', borderRadius: 20, padding: '2px 9px',
+            }}>{sl}</span>
+            {isNew && (
+              <span style={{
+                fontSize: 10.5, fontWeight: 700, color: C.teal,
+                background: C.teal + '18', borderRadius: 20, padding: '2px 9px',
+              }}>Just added</span>
+            )}
+          </div>
+          <button style={{
+            padding: '5px 13px', borderRadius: 8, border: '1.5px solid #e2e8f0',
+            background: 'white', fontSize: 12, fontWeight: 700, color: C.navy, cursor: 'pointer',
+            flexShrink: 0,
+          }}>View →</button>
+        </div>
+
+        {/* Value + Sparkline + Goal */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ minWidth: 64 }}>
+            <div style={{ fontSize: 28, fontWeight: 800, color: sc, lineHeight: 1 }}>{metric.value}</div>
+            <div style={{ fontSize: 11, marginTop: 3 }}>
+              <span style={{ color: metric.changeDir === 'down' ? C.offTrack : C.onTrack, fontWeight: 600 }}>
+                {metric.change}
+              </span>
+            </div>
+            <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 1 }}>{metric.changeContext}</div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <Sparkline data={metric.sparkData} goalValue={metric.goalValue} status={metric.status} width={130} height={40} />
+          </div>
+          <div style={{ textAlign: 'right', minWidth: 70 }}>
+            <div style={{ fontSize: 10.5, color: '#94a3b8', marginBottom: 1 }}>Q2 goal</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#334155' }}>{metric.goal}</div>
+            <div style={{ fontSize: 11.5, fontWeight: 600, color: metric.status === 'ontrack' ? C.onTrack : sc }}>
+              {metric.goalDiff}
+            </div>
+          </div>
+        </div>
+
+        {/* Insight pill */}
+        <div style={{
+          fontSize: 11.5, color: sc,
+          background: sc + '10', borderRadius: 8,
+          padding: '7px 10px', marginTop: 10, lineHeight: 1.5, fontWeight: 500,
+        }}>
+          {metric.watchInsight}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── My Metrics Screen ────────────────────────────────────────────────────────
+function MyMetricsScreen({ metrics, justFollowed }) {
+  const hasAlert = metrics.some(m => m.status === 'offtrack' || m.status === 'risky');
+
+  if (metrics.length === 0) {
+    return (
+      <div style={{
+        flex: 1, display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center',
+        padding: '32px 28px', textAlign: 'center',
+      }}>
+        <div style={{ fontSize: 44, marginBottom: 14 }}>📊</div>
+        <div style={{ fontSize: 16, fontWeight: 800, color: '#0d1b2e', marginBottom: 8 }}>
+          No metrics yet
+        </div>
+        <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.65 }}>
+          Follow a metric in the Chat — the agent will monitor it and notify you via DM when something meaningful changes.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', padding: '14px 14px 8px' }}>
+      {/* Agent DM notification */}
+      {hasAlert && (
+        <div style={{
+          borderRadius: 14, background: 'white',
+          border: `1px solid ${C.offTrack}28`,
+          boxShadow: '0 2px 10px rgba(0,0,0,0.07)',
+          padding: '12px 14px', marginBottom: 14,
+          overflow: 'hidden', position: 'relative',
+        }}>
+          {/* Left accent */}
+          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: C.offTrack }} />
+          <div style={{ paddingLeft: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 8 }}>
+              <div style={{
+                width: 30, height: 30, borderRadius: 8, flexShrink: 0,
+                background: `linear-gradient(135deg, ${C.teal}, #0082a0)`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 12, fontWeight: 800, color: 'white',
+              }}>A</div>
+              <div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#0d1b2e' }}>Tableau Agent</div>
+                <div style={{ fontSize: 10.5, color: '#94a3b8' }}>DM · 2 hours ago</div>
+              </div>
+              <div style={{
+                marginLeft: 'auto', fontSize: 10.5, fontWeight: 700,
+                color: C.offTrack, background: C.offTrack + '15',
+                borderRadius: 10, padding: '2px 8px',
+              }}>Alert</div>
+            </div>
+            <div style={{ fontSize: 13, color: '#334155', lineHeight: 1.6 }}>
+              <span style={{ color: C.offTrack }}>📉</span>{' '}
+              <strong>Win Rate dropped to 24%</strong> — off track vs. Q2 goal of 30%. Third consecutive week of decline. Enterprise pipeline is the main driver.
+            </div>
+            <div style={{ fontSize: 11.5, color: C.teal, marginTop: 8, fontWeight: 700, cursor: 'pointer' }}>
+              View Win Rate details →
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Section label */}
+      <div style={{
+        fontSize: 10.5, color: '#94a3b8', fontWeight: 700,
+        letterSpacing: '0.6px', textTransform: 'uppercase',
+        marginBottom: 10,
+      }}>
+        {metrics.length} metric{metrics.length !== 1 ? 's' : ''} tracked
+      </div>
+
+      {metrics.map(m => (
+        <WatchlistCard key={m.id} metric={m} isNew={justFollowed === m.id} />
+      ))}
+
+      <div style={{ height: 8 }} />
+    </div>
+  );
+}
+
+// ─── Root App ─────────────────────────────────────────────────────────────────
+function App() {
+  const [activeTab, setActiveTab]   = useState('chat');
+  const [withMetrics, setWithMetrics] = useState(true);
+  const [followed, setFollowed]     = useState({ 'avg-deal-size': true });
+  const [justFollowed, setJustFollowed] = useState(null);
+  const toastTimer = useRef(null);
+
+  const handleFollow = (id) => {
+    if (followed[id]) return;
+    setFollowed(prev => ({ ...prev, [id]: true }));
+    setJustFollowed(id);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setJustFollowed(null), 3500);
+  };
+
+  const ORDER = ['win-rate', 'pipeline-coverage', 'avg-deal-size'];
+  const followedMetrics = ORDER.filter(id => followed[id]).map(id => METRICS[id]);
+  const followedCount   = followedMetrics.length;
+
+  return (
+    <div style={{
+      width: '100%', height: '100%',
+      background: C.bg,
+      display: 'flex', flexDirection: 'column',
+      position: 'relative',
+    }}>
+      {/* Status bar */}
+      <div style={{
+        background: C.navy, color: 'white',
+        padding: '14px 22px 6px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        fontSize: 12, fontWeight: 700, flexShrink: 0,
+        letterSpacing: '0.2px',
+      }}>
+        <span>9:42</span>
+        <span style={{ fontSize: 11, opacity: 0.75, letterSpacing: 2 }}>●●● ▲ ■</span>
+      </div>
+
+      {/* Slack-style header */}
+      <div style={{ background: C.navy, padding: '6px 16px 0', flexShrink: 0 }}>
+        {/* Channel info */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 12 }}>
+          <div style={{
+            width: 34, height: 34, borderRadius: 9,
+            background: 'rgba(255,255,255,0.13)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 17, color: 'rgba(255,255,255,0.85)',
+          }}>#</div>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: 'white', lineHeight: 1.2 }}>
+              sales-insights
+            </div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)' }}>12 members</div>
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 14 }}>
+            <span style={{ fontSize: 18, color: 'rgba(255,255,255,0.55)', cursor: 'pointer' }}>🔍</span>
+            <span style={{ fontSize: 18, color: 'rgba(255,255,255,0.55)', cursor: 'pointer' }}>⋯</span>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex' }}>
+          {[
+            { key: 'chat', label: 'Chat' },
+            { key: 'my-metrics', label: 'My Metrics', badge: followedCount },
+          ].map(tab => {
+            const active = activeTab === tab.key;
+            return (
+              <button key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                style={{
+                  flex: 1, padding: '10px 6px 8px',
+                  border: 'none', background: 'none', cursor: 'pointer',
+                  color: active ? 'white' : 'rgba(255,255,255,0.5)',
+                  fontSize: 13.5, fontWeight: active ? 700 : 500,
+                  borderBottom: active ? '2px solid white' : '2px solid transparent',
+                  transition: 'all 0.15s',
+                  position: 'relative',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}>
+                {tab.label}
+                {tab.badge > 0 && (
+                  <span style={{
+                    width: 18, height: 18, borderRadius: '50%',
+                    background: C.teal,
+                    color: 'white', fontSize: 9.5, fontWeight: 800,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>{tab.badge}</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Screen content */}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {activeTab === 'chat'
+          ? <ChatScreen
+              withMetrics={withMetrics}
+              setWithMetrics={setWithMetrics}
+              followed={followed}
+              onFollow={handleFollow}
+              justFollowed={justFollowed}
+            />
+          : <MyMetricsScreen
+              metrics={followedMetrics}
+              justFollowed={justFollowed}
+            />
+        }
+      </div>
+
+      {/* Bottom nav */}
+      <div style={{
+        background: 'white', borderTop: '1px solid #e2e8f0',
+        padding: '6px 0 20px',
+        display: 'flex', justifyContent: 'space-around', alignItems: 'center',
+        flexShrink: 0,
+      }}>
+        {[
+          { icon: '🏠', label: 'Home' },
+          { icon: '🔍', label: 'Search' },
+          { icon: '💬', label: 'DMs', active: true },
+          { icon: '🔔', label: 'Activity' },
+          { icon: '👤', label: 'You' },
+        ].map(({ icon, label, active }) => (
+          <button key={label} style={{
+            background: 'none', border: 'none', cursor: 'pointer',
+            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+            padding: '4px 10px', opacity: active ? 1 : 0.38,
+          }}>
+            <span style={{ fontSize: 22 }}>{icon}</span>
+            <span style={{
+              fontSize: 9.5, fontWeight: active ? 700 : 500,
+              color: active ? C.teal : '#64748b',
+            }}>{label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
 </html>
